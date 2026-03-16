@@ -1,0 +1,1456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SRSU — Structured Bird's-Eye View Road Scene Understanding</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Mono:wght@300;400;500&family=Syne:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ════════════════════════════════════════
+   SHARED TOKENS
+════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --navy:  #050c1a;
+  --navy2: #0a1628;
+  --navy3: #0f1f38;
+  --navy4: #162845;
+  --grid:  rgba(255,255,255,0.035);
+  --grid2: rgba(255,255,255,0.06);
+  --white: #f0f4fa;
+  --muted: #7a92b4;
+  --faint: #2a3d5a;
+  --amber: #f5b932;
+  --teal:  #30d5a8;
+  --blue:  #4fa3f7;
+  --coral: #f26b5a;
+  --serif:   'Instrument Serif', Georgia, serif;
+  --mono:    'DM Mono', monospace;
+  --display: 'Syne', sans-serif;
+}
+
+html { scroll-behavior: smooth; }
+body {
+  background: var(--navy);
+  color: var(--white);
+  font-family: var(--display);
+  overflow-x: hidden;
+}
+
+.bg-grid {
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background-image:
+    linear-gradient(var(--grid)  1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px),
+    linear-gradient(var(--grid2) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid2) 1px, transparent 1px);
+  background-size: 20px 20px, 20px 20px, 100px 100px, 100px 100px;
+}
+
+@keyframes blink   { 0%,100%{opacity:1} 50%{opacity:.2} }
+@keyframes fadeIn  { from{opacity:0} to{opacity:1} }
+@keyframes fadeUp  { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+@keyframes spin    { to{transform:rotate(360deg)} }
+
+/* ════════════════════════════════════════
+   VIEW SWITCHING
+════════════════════════════════════════ */
+#loginView {
+  position: fixed; inset: 0; z-index: 200;
+  transition: opacity .5s ease, transform .5s ease;
+}
+#loginView.hiding {
+  opacity: 0;
+  transform: scale(1.02);
+  pointer-events: none;
+}
+
+#siteView {
+  display: none;
+  opacity: 0;
+  transition: opacity .6s ease;
+}
+#siteView.visible {
+  display: block;
+  opacity: 1;
+}
+
+/* ════════════════════════════════════════
+   LOGIN PAGE
+════════════════════════════════════════ */
+.login-shell {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  height: 100vh;
+  position: relative; z-index: 1;
+}
+
+/* Left panel */
+.l-left {
+  display: flex; flex-direction: column;
+  justify-content: space-between;
+  padding: 40px 48px;
+  border-right: 1px solid rgba(255,255,255,0.06);
+  position: relative; overflow: hidden;
+}
+.l-left-canvas {
+  position: absolute; inset: 0;
+  pointer-events: none; z-index: 0;
+}
+.l-left-content { position: relative; z-index: 1; }
+.l-brand {
+  display: flex; align-items: center; gap: 12px;
+  font-family: var(--mono); font-size: 15px; font-weight: 500;
+  color: var(--amber); letter-spacing: .1em;
+}
+.l-brand-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--teal); animation: blink 2s ease-in-out infinite;
+}
+.l-hero { margin-top: auto; padding-bottom: 60px; }
+.l-eyebrow {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--teal); margin-bottom: 20px;
+  display: flex; align-items: center; gap: 10px;
+}
+.l-eyebrow::before { content:''; width:28px; height:1px; background:var(--teal); }
+.l-title {
+  font-family: var(--serif); font-size: clamp(28px, 3.5vw, 48px);
+  font-weight: 400; line-height: 1.15; margin-bottom: 20px;
+}
+.l-title em { color: var(--amber); font-style: italic; }
+.l-desc {
+  font-size: 13px; color: var(--muted); line-height: 1.8;
+  max-width: 420px; margin-bottom: 40px;
+}
+.stat-pills { display: flex; flex-wrap: wrap; gap: 8px; }
+.stat-pill {
+  font-family: var(--mono); font-size: 11px; padding: 6px 14px;
+  border-radius: 20px; border: 1px solid;
+  display: flex; align-items: center; gap: 6px;
+}
+.stat-pill.a { border-color:rgba(245,185,50,.4); color:var(--amber); background:rgba(245,185,50,.07); }
+.stat-pill.t { border-color:rgba(48,213,168,.4);  color:var(--teal);  background:rgba(48,213,168,.07); }
+.stat-pill.b { border-color:rgba(79,163,247,.4);  color:var(--blue);  background:rgba(79,163,247,.07); }
+.stat-pill-dot { width:5px; height:5px; border-radius:50%; background:currentColor; }
+.l-footer {
+  font-family: var(--mono); font-size: 10px; color: var(--faint);
+  line-height: 1.9; position: relative; z-index: 1;
+}
+.l-footer a { color: var(--muted); text-decoration: none; }
+.l-footer a:hover { color: var(--white); }
+
+/* Right form panel */
+.l-right {
+  display: flex; flex-direction: column;
+  justify-content: center; align-items: center;
+  padding: 48px;
+}
+.form-shell { width: 100%; max-width: 400px; animation: fadeUp .5s ease both; }
+.form-header { margin-bottom: 36px; }
+.form-eyebrow {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--muted); margin-bottom: 10px;
+}
+.form-title { font-family: var(--serif); font-size: 32px; font-weight: 400; line-height: 1.15; }
+.form-title em { color: var(--amber); font-style: italic; }
+.form-subtitle { font-size: 13px; color: var(--muted); margin-top: 8px; line-height: 1.6; }
+.form-subtitle a { color: var(--amber); text-decoration: none; }
+.form-subtitle a:hover { text-decoration: underline; }
+
+.form-tabs {
+  display: flex; margin-bottom: 28px;
+  border: 1px solid rgba(255,255,255,.08); border-radius: 5px; overflow: hidden;
+}
+.form-tab {
+  flex: 1; padding: 9px; text-align: center;
+  font-family: var(--mono); font-size: 11px; letter-spacing: .06em;
+  text-transform: uppercase; cursor: pointer;
+  background: transparent; color: var(--muted); border: none; transition: all .2s;
+}
+.form-tab.active { background: var(--amber); color: var(--navy); font-weight: 500; }
+.form-tab:not(.active):hover { background: rgba(255,255,255,.05); color: var(--white); }
+
+.field { margin-bottom: 18px; }
+.field-label {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--muted); margin-bottom: 7px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.field-hint { color:var(--faint); font-size:10px; letter-spacing:.04em; text-transform:none; }
+.field-hint a { color: var(--blue); text-decoration: none; }
+.field-wrap { position: relative; }
+.field-icon {
+  position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+  font-size: 14px; color: var(--faint); pointer-events: none; transition: color .2s;
+}
+input[type=text], input[type=email], input[type=password] {
+  width: 100%; background: var(--navy2);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 4px; padding: 12px 14px 12px 42px;
+  font-family: var(--mono); font-size: 13px; color: var(--white);
+  outline: none; transition: border-color .2s, background .2s;
+  -webkit-appearance: none;
+}
+input[type=text]::placeholder,
+input[type=email]::placeholder,
+input[type=password]::placeholder { color: var(--faint); }
+input[type=text]:focus,
+input[type=email]:focus,
+input[type=password]:focus { border-color: var(--amber); background: var(--navy3); }
+.field-wrap:focus-within .field-icon { color: var(--amber); }
+
+.show-pw {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; cursor: pointer;
+  font-family: var(--mono); font-size: 9px; color: var(--faint);
+  letter-spacing: .06em; text-transform: uppercase; padding: 4px; transition: color .2s;
+}
+.show-pw:hover { color: var(--muted); }
+
+.remember-row {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;
+}
+.checkbox-wrap { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.checkbox-wrap input[type=checkbox] {
+  width: 16px; height: 16px; padding: 0; border-radius: 3px;
+  accent-color: var(--amber); cursor: pointer;
+}
+.checkbox-label { font-size: 12px; color: var(--muted); }
+.forgot-link {
+  font-family: var(--mono); font-size: 11px; color: var(--blue);
+  text-decoration: none; letter-spacing: .04em;
+}
+.forgot-link:hover { text-decoration: underline; }
+
+.submit-btn {
+  width: 100%; padding: 14px;
+  background: var(--amber); color: var(--navy);
+  border: none; border-radius: 4px;
+  font-family: var(--mono); font-size: 13px; font-weight: 500;
+  letter-spacing: .06em; cursor: pointer; transition: all .2s;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.submit-btn:hover { background: #fac840; transform: translateY(-1px); }
+.submit-btn:active { transform: translateY(0); }
+.submit-btn.loading { pointer-events: none; opacity: .8; }
+.btn-spinner {
+  display: none; width: 14px; height: 14px;
+  border: 2px solid rgba(5,12,26,.3); border-top-color: var(--navy);
+  border-radius: 50%; animation: spin .7s linear infinite;
+}
+.submit-btn.loading .btn-spinner { display: block; }
+
+.divider {
+  display: flex; align-items: center; gap: 12px; margin: 20px 0;
+  font-family: var(--mono); font-size: 10px; color: var(--faint);
+  letter-spacing: .08em; text-transform: uppercase;
+}
+.divider::before, .divider::after { content:''; flex:1; height:1px; background:rgba(255,255,255,.07); }
+
+.social-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.social-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 11px; border-radius: 4px; border: 1px solid rgba(255,255,255,.1);
+  background: var(--navy2); color: var(--muted);
+  font-family: var(--mono); font-size: 11px; cursor: pointer;
+  text-decoration: none; transition: all .2s;
+}
+.social-btn:hover { border-color:rgba(255,255,255,.2); color:var(--white); background:var(--navy3); }
+
+.msg {
+  display: none; padding: 10px 14px; border-radius: 4px;
+  font-family: var(--mono); font-size: 11px; margin-bottom: 16px;
+  letter-spacing: .04em; align-items: center; gap: 8px;
+}
+.msg.error   { background:rgba(242,107,90,.1);  border:1px solid rgba(242,107,90,.3);  color:var(--coral); }
+.msg.success { background:rgba(48,213,168,.1);  border:1px solid rgba(48,213,168,.3);  color:var(--teal); }
+.msg.info    { background:rgba(79,163,247,.1);  border:1px solid rgba(79,163,247,.3);  color:var(--blue); }
+.msg.show    { display: flex; }
+
+/* User chip + sign out in nav */
+.nav-user-wrap {
+  display: flex; align-items: center; gap: 10px; margin-left: 16px;
+}
+.nav-user-chip {
+  display: flex; align-items: center; gap: 7px;
+  font-family: var(--mono); font-size: 11px; color: var(--teal);
+  background: rgba(48,213,168,.08);
+  border: 1px solid rgba(48,213,168,.25);
+  padding: 5px 12px; border-radius: 20px;
+}
+.nav-user-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--teal); animation: blink 2s infinite; flex-shrink: 0;
+}
+.nav-signout-btn {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 11px; letter-spacing: .06em;
+  padding: 7px 14px; border-radius: 3px; cursor: pointer;
+  background: rgba(242,107,90,.1);
+  border: 1px solid rgba(242,107,90,.4);
+  color: var(--coral);
+  transition: all .2s;
+}
+.nav-signout-btn:hover {
+  background: var(--coral); color: var(--navy);
+  border-color: var(--coral);
+}
+.nav-signout-btn:hover .nav-signout-icon { transform: translateX(3px); }
+.nav-signout-icon { font-size: 13px; transition: transform .2s; display: inline-block; }
+
+@media (max-width: 860px) {
+  .login-shell { grid-template-columns: 1fr; }
+  .l-left { display: none; }
+  .l-right { padding: 32px 24px; }
+}
+
+/* ════════════════════════════════════════
+   WEBSITE STYLES
+════════════════════════════════════════ */
+#siteView section,
+#siteView nav,
+#siteView footer { position: relative; z-index: 1; }
+
+/* NAV */
+.site-nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  display: flex; align-items: center; padding: 0 48px; height: 60px;
+  background: rgba(5,12,26,0.85); backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.nav-logo { font-family:var(--mono); font-size:14px; font-weight:500; color:var(--amber); letter-spacing:.1em; }
+.nav-links { display:flex; gap:32px; margin-left:auto; list-style:none; }
+.nav-links a { font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); text-decoration:none; transition:color .2s; }
+.nav-links a:hover { color:var(--white); }
+.nav-cta {
+  margin-left: 16px; font-family:var(--mono); font-size:11px; padding:7px 16px;
+  border:1px solid var(--amber); border-radius:3px; color:var(--amber); text-decoration:none; transition:all .2s; cursor:pointer; background:transparent;
+}
+.nav-cta:hover { background:var(--amber); color:var(--navy); }
+.nav-cta.filled { background:var(--amber); color:var(--navy); }
+.nav-cta.filled:hover { background:transparent; color:var(--amber); }
+
+/* HERO */
+.hero {
+  min-height:100vh; display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  padding:120px 48px 80px; text-align:center; position:relative;
+}
+.hero-tag {
+  display:inline-flex; align-items:center; gap:8px;
+  font-family:var(--mono); font-size:11px; letter-spacing:.12em;
+  text-transform:uppercase; color:var(--teal);
+  border:1px solid rgba(48,213,168,.3); padding:5px 14px; border-radius:20px; margin-bottom:32px;
+  animation:fadeIn .6s ease both;
+}
+.hero-tag::before { content:''; width:6px; height:6px; border-radius:50%; background:var(--teal); animation:blink 2s infinite; }
+.hero-title {
+  font-family:var(--serif); font-size:clamp(38px,6vw,76px); font-weight:400;
+  line-height:1.1; letter-spacing:-.01em; max-width:900px; margin-bottom:12px;
+  animation:fadeUp .7s ease .1s both;
+}
+.hero-title em { color:var(--amber); font-style:italic; }
+.hero-sub {
+  font-family:var(--serif); font-size:clamp(18px,2.5vw,26px); font-style:italic;
+  color:var(--muted); margin-bottom:40px; max-width:680px; animation:fadeUp .7s ease .2s both;
+}
+.hero-meta {
+  font-family:var(--mono); font-size:11px; color:var(--muted);
+  letter-spacing:.08em; margin-bottom:40px; animation:fadeUp .7s ease .3s both;
+}
+.hero-meta span { color:var(--white); }
+.hero-btns {
+  display:flex; gap:12px; flex-wrap:wrap; justify-content:center;
+  animation:fadeUp .7s ease .4s both; margin-bottom:80px;
+}
+.btn-paper {
+  font-family:var(--mono); font-size:12px; padding:12px 24px;
+  background:var(--amber); color:var(--navy); border-radius:3px;
+  text-decoration:none; font-weight:500; transition:all .2s; border:1px solid var(--amber);
+}
+.btn-paper:hover { background:transparent; color:var(--amber); }
+.btn-code {
+  font-family:var(--mono); font-size:12px; padding:12px 24px;
+  background:transparent; color:var(--white); border-radius:3px;
+  text-decoration:none; transition:all .2s; border:1px solid rgba(255,255,255,.2);
+}
+.btn-code:hover { border-color:var(--white); }
+
+.hero-canvas-wrap {
+  width:100%; max-width:800px; border:1px solid rgba(255,255,255,.08);
+  border-radius:8px; overflow:hidden; background:#020810; position:relative;
+  animation:fadeUp .8s ease .5s both;
+}
+.hero-canvas-label {
+  position:absolute; top:12px; left:16px; font-family:var(--mono); font-size:10px;
+  color:var(--muted); letter-spacing:.08em; text-transform:uppercase;
+}
+.hero-canvas-label span { color:var(--teal); }
+#heroCanvas { display:block; width:100%; }
+
+/* STATS */
+.stats { padding:0 48px; }
+.stats-inner {
+  display:grid; grid-template-columns:repeat(4,1fr);
+  border:1px solid rgba(255,255,255,.07); border-radius:6px; overflow:hidden;
+}
+.stat-item { padding:32px 28px; border-right:1px solid rgba(255,255,255,.07); position:relative; overflow:hidden; }
+.stat-item:last-child { border-right:none; }
+.stat-item::after { content:''; position:absolute; top:0; left:0; right:0; height:2px; }
+.stat-item:nth-child(1)::after { background:var(--amber); }
+.stat-item:nth-child(2)::after { background:var(--teal); }
+.stat-item:nth-child(3)::after { background:var(--blue); }
+.stat-item:nth-child(4)::after { background:var(--coral); }
+.stat-val { font-family:var(--serif); font-size:48px; font-weight:400; line-height:1; margin-bottom:6px; }
+.stat-item:nth-child(1) .stat-val { color:var(--amber); }
+.stat-item:nth-child(2) .stat-val { color:var(--teal); }
+.stat-item:nth-child(3) .stat-val { color:var(--blue); }
+.stat-item:nth-child(4) .stat-val { color:var(--coral); }
+.stat-label { font-size:11px; color:var(--muted); letter-spacing:.08em; text-transform:uppercase; margin-bottom:4px; }
+.stat-note { font-family:var(--mono); font-size:10px; color:var(--faint); }
+
+/* SECTIONS */
+.section { padding:100px 48px; }
+.section-tag {
+  font-family:var(--mono); font-size:10px; letter-spacing:.15em; text-transform:uppercase;
+  color:var(--amber); margin-bottom:16px; display:flex; align-items:center; gap:10px;
+}
+.section-tag::before { content:''; width:32px; height:1px; background:var(--amber); }
+.section-title { font-family:var(--serif); font-size:clamp(28px,4vw,52px); font-weight:400; line-height:1.15; margin-bottom:20px; }
+.section-title em { color:var(--amber); font-style:italic; }
+.section-body { font-size:15px; color:var(--muted); line-height:1.8; max-width:600px; }
+
+/* PARADIGM */
+.paradigm { padding:100px 48px; }
+.paradigm-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; margin-top:60px; }
+.paradigm-card {
+  background:var(--navy2); border:1px solid rgba(255,255,255,.07);
+  border-radius:6px; padding:28px; position:relative; transition:border-color .2s;
+}
+.paradigm-card:hover { border-color:rgba(255,255,255,.15); }
+.paradigm-card.featured {
+  border-color:rgba(245,185,50,.3);
+  background:linear-gradient(135deg,rgba(245,185,50,.06) 0%,var(--navy2) 60%);
+}
+.pc-num { font-family:var(--mono); font-size:10px; color:var(--faint); letter-spacing:.1em; margin-bottom:14px; }
+.pc-title { font-family:var(--serif); font-size:20px; margin-bottom:10px; line-height:1.3; }
+.paradigm-card.featured .pc-title { color:var(--amber); }
+.pc-body { font-size:13px; color:var(--muted); line-height:1.7; }
+.pc-tag { display:inline-block; margin-top:14px; font-family:var(--mono); font-size:10px; padding:3px 10px; border-radius:20px; letter-spacing:.06em; }
+.pc-tag.bad { background:rgba(242,107,90,.1); color:var(--coral); border:1px solid rgba(242,107,90,.3); }
+.pc-tag.good { background:rgba(48,213,168,.1); color:var(--teal); border:1px solid rgba(48,213,168,.3); }
+.pc-badge { position:absolute; top:14px; right:14px; font-family:var(--mono); font-size:9px; padding:4px 10px; background:var(--amber); color:var(--navy); border-radius:2px; font-weight:500; }
+
+/* METHOD */
+.method { padding:100px 48px; background:var(--navy2); }
+.method-layout { display:grid; grid-template-columns:1fr 1.4fr; gap:60px; align-items:start; margin-top:60px; }
+.pipeline-steps { display:flex; flex-direction:column; }
+.pipeline-step { display:flex; gap:20px; padding:24px 0; border-bottom:1px solid rgba(255,255,255,.06); cursor:pointer; transition:all .2s; }
+.pipeline-step:first-child { border-top:1px solid rgba(255,255,255,.06); }
+.pipeline-step:hover .ps-title { color:var(--amber); }
+.ps-num { font-family:var(--mono); font-size:10px; color:var(--faint); letter-spacing:.08em; width:28px; flex-shrink:0; padding-top:3px; }
+.ps-title { font-size:15px; font-weight:600; margin-bottom:6px; transition:color .2s; }
+.ps-desc { font-size:12px; color:var(--muted); line-height:1.7; }
+.method-viz { background:#020810; border:1px solid rgba(255,255,255,.07); border-radius:6px; overflow:hidden; position:sticky; top:80px; }
+.viz-label { padding:12px 16px; font-family:var(--mono); font-size:10px; color:var(--muted); border-bottom:1px solid rgba(255,255,255,.06); letter-spacing:.08em; text-transform:uppercase; display:flex; align-items:center; gap:8px; }
+.viz-dot { width:6px; height:6px; border-radius:50%; background:var(--teal); animation:blink 2s infinite; }
+#methodCanvas { display:block; width:100%; }
+
+/* MODULES */
+.modules-section { padding:100px 48px; }
+.modules-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; margin-top:60px; }
+.mod { border:1px solid rgba(255,255,255,.07); border-radius:6px; padding:32px; position:relative; background:var(--navy2); overflow:hidden; transition:transform .2s,border-color .2s; }
+.mod:hover { transform:translateY(-4px); border-color:rgba(255,255,255,.15); }
+.mod-glyph { font-family:var(--mono); font-size:48px; font-weight:500; line-height:1; margin-bottom:20px; display:block; }
+.mod:nth-child(1) .mod-glyph { color:var(--amber); }
+.mod:nth-child(2) .mod-glyph { color:var(--teal); }
+.mod:nth-child(3) .mod-glyph { color:var(--blue); }
+.mod-name { font-size:16px; font-weight:600; margin-bottom:12px; }
+.mod-desc { font-size:13px; color:var(--muted); line-height:1.7; margin-bottom:20px; }
+.mod-gains { display:flex; flex-direction:column; gap:6px; }
+.mod-gain-row { display:flex; align-items:center; justify-content:space-between; font-family:var(--mono); font-size:11px; }
+.mod-gain-label { color:var(--faint); }
+.mod-gain-val { font-weight:500; }
+.mod:nth-child(1) .mod-gain-val { color:var(--amber); }
+.mod:nth-child(2) .mod-gain-val { color:var(--teal); }
+.mod:nth-child(3) .mod-gain-val { color:var(--blue); }
+
+/* RESULTS */
+.results { padding:100px 48px; background:var(--navy2); }
+.results-layout { display:grid; grid-template-columns:1fr 1fr; gap:40px; margin-top:60px; align-items:start; }
+.results-table { width:100%; border-collapse:collapse; }
+.results-table thead th { font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); text-align:left; padding:10px 14px; border-bottom:1px solid rgba(255,255,255,.08); }
+.results-table tbody tr { transition:background .12s; }
+.results-table tbody tr:hover { background:rgba(255,255,255,.03); }
+.results-table tbody td { padding:12px 14px; font-size:13px; color:var(--muted); border-bottom:1px solid rgba(255,255,255,.04); font-family:var(--mono); }
+.results-table tbody td:first-child { font-family:var(--display); font-size:13px; color:var(--white); }
+.results-table .top-row td { background:rgba(245,185,50,.06); }
+.results-table .top-row td:first-child { color:var(--amber); font-weight:600; }
+.results-table .best { color:var(--amber) !important; font-weight:600; }
+.input-chip { font-size:9px; padding:2px 7px; border-radius:2px; font-family:var(--mono); white-space:nowrap; }
+.chip-cam   { background:rgba(79,163,247,.12); color:var(--blue);  border:1px solid rgba(79,163,247,.3); }
+.chip-multi { background:rgba(242,107,90,.1);  color:var(--coral); border:1px solid rgba(242,107,90,.3); }
+.chart-panel { background:#020810; border:1px solid rgba(255,255,255,.07); border-radius:6px; overflow:hidden; }
+.chart-panel-header { padding:14px 20px; border-bottom:1px solid rgba(255,255,255,.06); font-family:var(--mono); font-size:11px; color:var(--muted); letter-spacing:.08em; text-transform:uppercase; }
+#resultsChart { display:block; width:100%; }
+
+/* WEATHER */
+.weather-section { padding:100px 48px; }
+.weather-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:60px; }
+.wcard { border:1px solid rgba(255,255,255,.07); border-radius:6px; padding:32px; background:var(--navy2); position:relative; overflow:hidden; transition:border-color .2s; }
+.wcard:hover { border-color:rgba(255,255,255,.15); }
+.wcard-icon { font-size:36px; margin-bottom:16px; display:block; }
+.wcard-name { font-size:18px; font-weight:600; margin-bottom:8px; }
+.wcard-desc { font-size:13px; color:var(--muted); line-height:1.7; }
+.wcard-badge { display:inline-flex; align-items:center; gap:5px; margin-top:16px; font-family:var(--mono); font-size:10px; color:var(--teal); background:rgba(48,213,168,.1); border:1px solid rgba(48,213,168,.3); padding:4px 10px; border-radius:20px; }
+
+/* CITATION */
+.citation { padding:100px 48px; }
+.cite-box { max-width:820px; margin:0 auto; border:1px solid rgba(255,255,255,.1); border-radius:6px; overflow:hidden; }
+.cite-header { padding:16px 24px; background:var(--navy3); font-family:var(--mono); font-size:11px; color:var(--muted); letter-spacing:.08em; display:flex; align-items:center; gap:8px; border-bottom:1px solid rgba(255,255,255,.07); }
+.cite-dot { width:8px; height:8px; border-radius:50%; }
+.cite-dot.r { background:var(--coral); }
+.cite-dot.y { background:var(--amber); }
+.cite-dot.g { background:var(--teal); }
+.cite-body { padding:28px 24px; background:#020810; font-family:var(--mono); font-size:12px; color:var(--muted); line-height:1.9; white-space:pre-wrap; word-break:break-word; }
+.cite-key { color:var(--amber); }
+.cite-val { color:var(--white); }
+
+/* FOOTER */
+footer { padding:48px; border-top:1px solid rgba(255,255,255,.06); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:20px; }
+.footer-logo { font-family:var(--mono); font-size:14px; font-weight:500; color:var(--amber); }
+.footer-links { display:flex; gap:24px; list-style:none; }
+.footer-links a { font-size:12px; color:var(--muted); text-decoration:none; transition:color .2s; }
+.footer-links a:hover { color:var(--white); }
+.footer-note { font-family:var(--mono); font-size:11px; color:var(--faint); }
+
+/* REVEAL SCROLL */
+.reveal { opacity:0; transform:translateY(24px); transition:opacity .6s ease,transform .6s ease; }
+.reveal.visible { opacity:1; transform:none; }
+
+/* RESPONSIVE */
+@media (max-width:900px) {
+  .paradigm-grid,.modules-grid,.weather-grid { grid-template-columns:1fr 1fr; }
+  .results-layout,.method-layout { grid-template-columns:1fr; }
+  .stats-inner { grid-template-columns:1fr 1fr; }
+}
+@media (max-width:600px) {
+  .site-nav { padding:0 20px; }
+  .nav-links { display:none; }
+  .section,.paradigm,.method,.modules-section,.results,.weather-section,.citation { padding:60px 20px; }
+  .hero { padding:100px 20px 60px; }
+  .stats { padding:0 20px; }
+  .paradigm-grid,.modules-grid,.weather-grid,.stats-inner { grid-template-columns:1fr; }
+  footer { padding:32px 20px; }
+}
+</style>
+</head>
+<body>
+
+<div class="bg-grid"></div>
+
+<!-- ═══════════════════════════════════
+     LOGIN VIEW
+═══════════════════════════════════ -->
+<div id="loginView">
+  <div class="login-shell">
+
+    <!-- Left brand panel -->
+    <div class="l-left">
+      <canvas class="l-left-canvas" id="bgCanvas"></canvas>
+
+      <div class="l-left-content">
+        <div class="l-brand">
+          <span>SRSU</span>
+          <div class="l-brand-dot"></div>
+        </div>
+      </div>
+
+      <div class="l-hero">
+        <div class="l-eyebrow">IEEE TIV · December 2024</div>
+        <h1 class="l-title">Structured<br><em>Bird's-Eye View</em><br>Road Understanding</h1>
+        <p class="l-desc">An online hierarchical map construction framework that jointly extracts fine-grained road boundaries and lane topology from surround-view cameras — no HD maps required.</p>
+        <div class="stat-pills">
+          <div class="stat-pill a"><span class="stat-pill-dot"></span>54.3% mAP</div>
+          <div class="stat-pill t"><span class="stat-pill-dot"></span>56.5% C-F</div>
+          <div class="stat-pill b"><span class="stat-pill-dot"></span>nuScenes SOTA</div>
+        </div>
+      </div>
+
+      <div class="l-footer">
+        Beijing Institute of Technology · BIT Research Fund<br>
+        <a href="https://doi.org/10.1109/TIV.2024.3405561">Paper (IEEE)</a> &nbsp;·&nbsp;
+        <a href="https://github.com/jiapeng789/SRSU">GitHub</a>
+      </div>
+    </div>
+
+    <!-- Right form panel -->
+    <div class="l-right">
+      <div class="form-shell">
+
+        <div class="form-header">
+          <div class="form-eyebrow">Research Access Portal</div>
+          <h2 class="form-title" id="formTitle">Welcome <em>back</em></h2>
+          <p class="form-subtitle" id="formSub">
+            Sign in to access the SRSU project.
+            No account? <a href="#" onclick="switchTab('register');return false;">Create one</a>
+          </p>
+        </div>
+
+        <div class="form-tabs">
+          <button class="form-tab active" id="tab-login" onclick="switchTab('login')">Sign In</button>
+          <button class="form-tab" id="tab-register" onclick="switchTab('register')">Register</button>
+        </div>
+
+        <div class="msg error"   id="msgError"></div>
+        <div class="msg success" id="msgSuccess"></div>
+        <div class="msg info"    id="msgInfo"></div>
+
+        <!-- LOGIN -->
+        <div id="loginPanel">
+          <div class="field">
+            <label class="field-label">Email address</label>
+            <div class="field-wrap">
+              <span class="field-icon">✉</span>
+              <input type="email" id="loginEmail" placeholder="researcher@bit.edu.cn" autocomplete="email">
+            </div>
+          </div>
+          <div class="field">
+            <label class="field-label">
+              Password
+              <span class="field-hint"><a href="#" onclick="showForgot();return false;">Forgot?</a></span>
+            </label>
+            <div class="field-wrap">
+              <span class="field-icon">⬡</span>
+              <input type="password" id="loginPass" placeholder="Enter your password" autocomplete="current-password">
+              <button class="show-pw" onclick="togglePw('loginPass',this)" type="button">show</button>
+            </div>
+          </div>
+          <div class="remember-row">
+            <label class="checkbox-wrap">
+              <input type="checkbox" id="rememberMe" checked>
+              <span class="checkbox-label">Keep me signed in</span>
+            </label>
+            <a class="forgot-link" href="#" onclick="showForgot();return false;">Reset password →</a>
+          </div>
+          <button class="submit-btn" id="loginBtn" onclick="handleLogin()">
+            <div class="btn-spinner"></div>
+            <span>Sign in &nbsp;→</span>
+          </button>
+          <div class="divider">or continue with</div>
+          <div class="social-btns">
+            <a class="social-btn" href="#">G &nbsp; Google</a>
+            <a class="social-btn" href="#">◈ &nbsp; GitHub</a>
+          </div>
+        </div>
+
+        <!-- REGISTER -->
+        <div id="registerPanel" style="display:none">
+          <div class="field">
+            <label class="field-label">Full name</label>
+            <div class="field-wrap">
+              <span class="field-icon">◎</span>
+              <input type="text" id="regName" placeholder="Dr. Peng Jia" autocomplete="name">
+            </div>
+          </div>
+          <div class="field">
+            <label class="field-label">Institution email</label>
+            <div class="field-wrap">
+              <span class="field-icon">✉</span>
+              <input type="email" id="regEmail" placeholder="you@institution.edu" autocomplete="email">
+            </div>
+          </div>
+          <div class="field">
+            <label class="field-label">
+              Password
+              <span class="field-hint">Min. 8 characters</span>
+            </label>
+            <div class="field-wrap">
+              <span class="field-icon">⬡</span>
+              <input type="password" id="regPass" placeholder="Create a strong password" autocomplete="new-password">
+              <button class="show-pw" onclick="togglePw('regPass',this)" type="button">show</button>
+            </div>
+          </div>
+          <div class="field">
+            <label class="field-label">Confirm password</label>
+            <div class="field-wrap">
+              <span class="field-icon">⬡</span>
+              <input type="password" id="regPass2" placeholder="Repeat password">
+            </div>
+          </div>
+          <div class="remember-row">
+            <label class="checkbox-wrap">
+              <input type="checkbox" id="agreeTerms">
+              <span class="checkbox-label">I agree to the research usage terms</span>
+            </label>
+          </div>
+          <button class="submit-btn" id="registerBtn" onclick="handleRegister()">
+            <div class="btn-spinner"></div>
+            <span>Create account &nbsp;→</span>
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════
+     SITE VIEW  (hidden until login)
+═══════════════════════════════════ -->
+<div id="siteView">
+
+  <!-- NAV -->
+  <nav class="site-nav">
+    <div class="nav-logo">SRSU</div>
+    <ul class="nav-links">
+      <li><a href="#method">Method</a></li>
+      <li><a href="#modules">Modules</a></li>
+      <li><a href="#results">Results</a></li>
+      <li><a href="#cite">Cite</a></li>
+    </ul>
+    <a class="nav-cta" href="https://github.com/jiapeng789/SRSU">GitHub →</a>
+    <div class="nav-user-wrap" id="navUser">
+      <div class="nav-user-chip">
+        <span class="nav-user-dot"></span>
+        <span id="navUserName">Signed in</span>
+      </div>
+      <button class="nav-signout-btn" onclick="signOut()">
+        <span class="nav-signout-icon">→</span>
+        Sign Out
+      </button>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-tag">IEEE TIV · Vol.9 No.12 · December 2024</div>
+    <h1 class="hero-title">Structured <em>Bird's-Eye View</em><br>Road Scene Understanding</h1>
+    <p class="hero-sub">Online road map detection and network estimation in a unified framework</p>
+    <p class="hero-meta">
+      <span>Peng Jia</span> · <span>Yahui Jiang</span> · <span>Zhiyang Ju</span> · <span>Jianyong Qi</span> · <span>Zheng Zang</span> · <span>Yuchun Wang</span> · <span>Jianwei Gong</span><br>
+      Beijing Institute of Technology
+    </p>
+    <div class="hero-btns">
+      <a class="btn-paper" href="https://doi.org/10.1109/TIV.2024.3405561">Paper (IEEE TIV)</a>
+      <a class="btn-code" href="https://github.com/jiapeng789/SRSU">Code (GitHub)</a>
+      <a class="btn-code" href="#results">View Results</a>
+    </div>
+    <div class="hero-canvas-wrap" style="max-width:720px">
+      <div class="hero-canvas-label">BEV Output · <span>Joint Mode</span></div>
+      <canvas id="heroCanvas" height="300"></canvas>
+    </div>
+  </section>
+
+  <!-- STATS -->
+  <div class="stats reveal">
+    <div class="stats-inner">
+      <div class="stat-item"><div class="stat-label">mAP · Road Map</div><div class="stat-val">54.3<span style="font-size:24px">%</span></div><div class="stat-note">↑ +6.8pp vs MapTR</div></div>
+      <div class="stat-item"><div class="stat-label">AP Centerline</div><div class="stat-val">50.3<span style="font-size:24px">%</span></div><div class="stat-note">Road network estimation</div></div>
+      <div class="stat-item"><div class="stat-label">Connectivity C-F</div><div class="stat-val">56.5<span style="font-size:24px">%</span></div><div class="stat-note">Lane topology score</div></div>
+      <div class="stat-item"><div class="stat-label">Dataset</div><div class="stat-val" style="font-size:32px;line-height:1.4">nuScenes</div><div class="stat-note">1000 sequences · 2 Hz</div></div>
+    </div>
+  </div>
+
+  <!-- PARADIGM -->
+  <section class="paradigm reveal" id="intro">
+    <div class="section-tag">Background</div>
+    <h2 class="section-title">Four paradigms of<br><em>road scene understanding</em></h2>
+    <p class="section-body">Offline HD maps require manual annotation, are costly, and can't be updated in real time. SRSU is the first online framework to jointly extract both fine-grained map boundaries and lane topology.</p>
+    <div class="paradigm-grid">
+      <div class="paradigm-card"><div class="pc-num">01 / OFFLINE</div><div class="pc-title">Offline HD Map Construction</div><div class="pc-body">Uses LiDAR, IMU, GPS + manual annotation to build globally consistent HD semantic maps. Highly accurate but inflexible — cannot adapt to new roads or changing environments.</div><span class="pc-tag bad">Labor-intensive · Not scalable</span></div>
+      <div class="paradigm-card"><div class="pc-num">02 / ONLINE</div><div class="pc-title">Online Road Network Estimation</div><div class="pc-body">Parameterized curve theory extracts BEV lane centerlines with topology from single-view images. Limited to open-shaped elements — cannot accurately describe fine-grained map boundaries.</div><span class="pc-tag bad">No map boundaries · Single-view only</span></div>
+      <div class="paradigm-card"><div class="pc-num">03 / ONLINE</div><div class="pc-title">Online Road Map Detection</div><div class="pc-body">HD map construction theory extracts BEV road maps with fine-grained boundaries (road boundaries, lane dividers, pedestrian crossings). No topological information about lane connectivity.</div><span class="pc-tag bad">No lane topology</span></div>
+      <div class="paradigm-card featured"><div class="pc-badge">OURS</div><div class="pc-num">04 / SRSU</div><div class="pc-title">Unified Hierarchical Map Construction</div><div class="pc-body">Jointly extracts fine-grained map boundaries and lane topology from surround-view images in a single online framework. No HD maps needed — complete structured road scene understanding.</div><span class="pc-tag good">Maps + Topology · Surround-view · Online</span></div>
+    </div>
+  </section>
+
+  <!-- METHOD -->
+  <section class="method reveal" id="method">
+    <div class="section-tag">Architecture</div>
+    <h2 class="section-title">How <em>SRSU</em> works</h2>
+    <div class="method-layout">
+      <div class="pipeline-steps">
+        <div class="pipeline-step"><div class="ps-num">01</div><div><div class="ps-title">Map Encoder</div><div class="ps-desc">ResNet-50 backbone extracts multi-view CNN features from 6 surround cameras. GKT lifts 2D image features to the BEV top-down plane, generating shared BEV features.</div></div></div>
+        <div class="pipeline-step"><div class="ps-num">02</div><div><div class="ps-title">Hierarchical Map Decoder</div><div class="ps-desc">Two sets of learnable hierarchical query embeddings — one for road map elements, one for lane centerlines. Each query combines point-level + instance-level information via cascading transformer layers with MHSA + Deformable Attention.</div></div></div>
+        <div class="pipeline-step"><div class="ps-num">03</div><div><div class="ps-title">Multi-Task Learning</div><div class="ps-desc">Two branches: Road Map Detection (classification + point regression) and Road Network Estimation (centerline detection + MLP-based adjacency matrix → lane topology graph).</div></div></div>
+        <div class="pipeline-step" style="border-bottom:none"><div class="ps-num">04</div><div><div class="ps-title">Hierarchical Map Output</div><div class="ps-desc">Road map: ordered point sets W=(U,Γ). Road network: directed graph G=(V,E) with adjacency probability matrix P∈ℝᴺˣᴺ encoding lane topology.</div></div></div>
+      </div>
+      <div class="method-viz">
+        <div class="viz-label"><span class="viz-dot"></span>Live BEV · Pipeline Output</div>
+        <canvas id="methodCanvas" height="380"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <!-- MODULES -->
+  <section class="modules-section reveal" id="modules">
+    <div class="section-tag">Empirical Modules</div>
+    <h2 class="section-title">Three modules that<br><em>close the gap</em></h2>
+    <p class="section-body">Multi-task learning typically degrades vs single-task. These three modules are specifically designed to eliminate that degradation.</p>
+    <div class="modules-grid">
+      <div class="mod"><span class="mod-glyph">AT</span><div class="mod-name">Auxiliary Task Prediction</div><div class="mod-desc">Two CNN decoders predict distance transform maps D<sup>Road</sup> and D<sup>Lane</sup> in rasterized BEV space. Supervises encoder training and supplies spatial priors downstream.</div><div class="mod-gains"><div class="mod-gain-row"><span class="mod-gain-label">mAP gain</span><span class="mod-gain-val">+1.9%</span></div><div class="mod-gain-row"><span class="mod-gain-label">APcenterline</span><span class="mod-gain-val">+2.1%</span></div><div class="mod-gain-row"><span class="mod-gain-label">C-F (topology)</span><span class="mod-gain-val">+1.8%</span></div></div></div>
+      <div class="mod"><span class="mod-glyph">D</span><div class="mod-name">Multi-Modal Distillation</div><div class="mod-desc">Projects decoder reference points onto distance maps, encodes position via sinusoidal encoding + local direction via MLP, fuses spatial+semantic into enriched feature vectors.</div><div class="mod-gains"><div class="mod-gain-row"><span class="mod-gain-label">mAP (with AT)</span><span class="mod-gain-val">+3.7%</span></div><div class="mod-gain-row"><span class="mod-gain-label">APcenterline</span><span class="mod-gain-val">+3.5%</span></div><div class="mod-gain-row"><span class="mod-gain-label">Requires</span><span class="mod-gain-val">AT module</span></div></div></div>
+      <div class="mod"><span class="mod-glyph">I</span><div class="mod-name">Higher-Order Interaction</div><div class="mod-desc">Fully-connected global graph over all M+N feature vectors. Attentional GNN propagates via L layers of MLP + MHSA message passing — learning cross-task association.</div><div class="mod-gains"><div class="mod-gain-row"><span class="mod-gain-label">mAP gain</span><span class="mod-gain-val">+2.2%</span></div><div class="mod-gain-row"><span class="mod-gain-label">APcenterline</span><span class="mod-gain-val">+1.9%</span></div><div class="mod-gain-row"><span class="mod-gain-label">C-F (topology)</span><span class="mod-gain-val">+2.0%</span></div></div></div>
+    </div>
+  </section>
+
+  <!-- RESULTS -->
+  <section class="results reveal" id="results">
+    <div class="section-tag">Experiments</div>
+    <h2 class="section-title">State-of-the-art<br><em>results on nuScenes</em></h2>
+    <p class="section-body" style="margin-bottom:0">SRSU outperforms all prior methods on both tasks — including methods that use additional LiDAR input.</p>
+    <div class="results-layout">
+      <div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:14px;margin-top:40px">Road Map Detection · mAP</div>
+        <table class="results-table">
+          <thead><tr><th>Method</th><th>Input</th><th>AP₀.₅</th><th>AP₁.₀</th><th>mAP</th></tr></thead>
+          <tbody>
+            <tr><td>HDMapNet</td><td><span class="input-chip chip-multi">Cam+Lidar</span></td><td>6.6</td><td>14.0</td><td>13.3</td></tr>
+            <tr><td>VectorMapNet</td><td><span class="input-chip chip-multi">Cam+Lidar</span></td><td>20.1</td><td>35.2</td><td>34.3</td></tr>
+            <tr><td>MapTR</td><td><span class="input-chip chip-cam">Camera</span></td><td>30.8</td><td>49.9</td><td>47.5</td></tr>
+            <tr><td>SRSU-Lite</td><td><span class="input-chip chip-cam">Camera</span></td><td>32.9</td><td>51.2</td><td>48.7</td></tr>
+            <tr class="top-row"><td>SRSU (Det only)</td><td><span class="input-chip chip-cam">Camera</span></td><td class="best">37.8</td><td class="best">57.0</td><td class="best">54.3</td></tr>
+          </tbody>
+        </table>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:14px;margin-top:32px">Road Network Estimation</div>
+        <table class="results-table">
+          <thead><tr><th>Method</th><th>APcenterline</th><th>C-F</th></tr></thead>
+          <tbody>
+            <tr><td>Baseline-S</td><td>38.7</td><td>45.1</td></tr>
+            <tr><td>Baseline-T</td><td>42.1</td><td>49.3</td></tr>
+            <tr><td>SRSU-Lite (Est)</td><td>45.6</td><td>51.8</td></tr>
+            <tr class="top-row"><td>SRSU (Est only)</td><td class="best">50.3</td><td class="best">56.4</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:14px;margin-top:40px">Ablation · mAP Progression</div>
+        <div class="chart-panel">
+          <div class="chart-panel-header">Empirical modules added one by one</div>
+          <canvas id="resultsChart" height="220"></canvas>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- WEATHER -->
+  <section class="weather-section reveal">
+    <div class="section-tag">Robustness</div>
+    <h2 class="section-title">Stable across all<br><em>weather conditions</em></h2>
+    <p class="section-body">Qualitative evaluation on nuScenes val set demonstrates consistent performance across all lighting and weather conditions.</p>
+    <div class="weather-grid">
+      <div class="wcard"><span class="wcard-icon">☀</span><div class="wcard-name">Sunny & Cloudy</div><div class="wcard-desc">Clear visibility conditions. SRSU produces clean road boundaries with accurate lane dividers and precise pedestrian crossing detection in standard daylight.</div><div class="wcard-badge">✓ Validated on nuScenes</div></div>
+      <div class="wcard"><span class="wcard-icon">🌧</span><div class="wcard-name">Rainy Weather</div><div class="wcard-desc">Wet roads with reflections and reduced contrast. SRSU maintains stable BEV road map construction even under significant visibility degradation and surface glare.</div><div class="wcard-badge">✓ Validated on nuScenes</div></div>
+      <div class="wcard"><span class="wcard-icon">🌑</span><div class="wcard-name">Nighttime</div><div class="wcard-desc">Low-light conditions with artificial illumination only. SRSU correctly detects road boundaries and lane topology from headlight-lit BEV features.</div><div class="wcard-badge">✓ Validated on nuScenes</div></div>
+    </div>
+  </section>
+
+  <!-- CITATION -->
+  <section class="citation reveal" id="cite">
+    <div style="max-width:820px;margin:0 auto;text-align:center;margin-bottom:48px">
+      <div class="section-tag" style="justify-content:center">Citation</div>
+      <h2 class="section-title">Cite this paper</h2>
+      <p class="section-body" style="margin:0 auto">If you use SRSU in your research, please cite the following IEEE Transactions on Intelligent Vehicles paper.</p>
+    </div>
+    <div class="cite-box">
+      <div class="cite-header"><span class="cite-dot r"></span><span class="cite-dot y"></span><span class="cite-dot g"></span>bibtex · srsu_2024.bib</div>
+      <pre class="cite-body"><span class="cite-key">@article</span>{jia2024srsu,
+  <span class="cite-key">title</span>     = {<span class="cite-val">SRSU: An Online Road Map Detection and Network Estimation for Structured Bird's-Eye View Road Scene Understanding</span>},
+  <span class="cite-key">author</span>    = {<span class="cite-val">Jia, Peng and Jiang, Yahui and Ju, Zhiyang and Qi, Jianyong and Zang, Zheng and Wang, Yuchun and Gong, Jianwei</span>},
+  <span class="cite-key">journal</span>   = {<span class="cite-val">IEEE Transactions on Intelligent Vehicles</span>},
+  <span class="cite-key">volume</span>    = {<span class="cite-val">9</span>},  <span class="cite-key">number</span>  = {<span class="cite-val">12</span>},
+  <span class="cite-key">pages</span>     = {<span class="cite-val">7973--7986</span>},  <span class="cite-key">year</span>  = {<span class="cite-val">2024</span>},
+  <span class="cite-key">doi</span>       = {<span class="cite-val">10.1109/TIV.2024.3405561</span>},
+  <span class="cite-key">publisher</span> = {<span class="cite-val">IEEE</span>}
+}</pre>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="footer-logo">SRSU</div>
+    <ul class="footer-links">
+      <li><a href="https://doi.org/10.1109/TIV.2024.3405561">Paper</a></li>
+      <li><a href="https://github.com/jiapeng789/SRSU">Code</a></li>
+      <li><a href="#method">Method</a></li>
+      <li><a href="#results">Results</a></li>
+    </ul>
+    <div class="footer-note">Beijing Institute of Technology · IEEE TIV 2024</div>
+  </footer>
+
+</div><!-- /siteView -->
+
+<!-- ═══════════════════════════════════
+     JAVASCRIPT
+═══════════════════════════════════ -->
+<script>
+/* ── AUTH STATE ── */
+let currentUser = null;
+
+function getUsers() { return JSON.parse(localStorage.getItem('srsu_users') || '[]'); }
+function saveUsers(u) { localStorage.setItem('srsu_users', JSON.stringify(u)); }
+function getSession() { return JSON.parse(sessionStorage.getItem('srsu_session') || 'null'); }
+function saveSession(u) { sessionStorage.setItem('srsu_session', JSON.stringify(u)); }
+
+/* On load: check if already signed in */
+window.addEventListener('DOMContentLoaded', () => {
+  const sess = getSession();
+  if (sess) {
+    currentUser = sess;
+    showSite(false); /* no animation on direct load */
+  } else {
+    /* start login canvas */
+    resizeBg(); drawBg();
+  }
+});
+
+/* ── TRANSITION: login → site ── */
+function showSite(animate) {
+  const lv = document.getElementById('loginView');
+  const sv = document.getElementById('siteView');
+
+  if (animate) {
+    lv.classList.add('hiding');
+    setTimeout(() => {
+      lv.style.display = 'none';
+      sv.style.display = 'block';
+      requestAnimationFrame(() => {
+        sv.classList.add('visible');
+        initSite();
+      });
+    }, 500);
+  } else {
+    lv.style.display = 'none';
+    sv.style.display = 'block';
+    sv.classList.add('visible');
+    initSite();
+  }
+
+  /* Update nav user chip */
+  const nameEl = document.getElementById('navUserName');
+  if (currentUser) {
+    const first = currentUser.name ? currentUser.name.split(' ')[0] : currentUser.email.split('@')[0];
+    nameEl.textContent = first;
+  }
+}
+
+function signOut() {
+  sessionStorage.removeItem('srsu_session');
+  currentUser = null;
+  const lv = document.getElementById('loginView');
+  const sv = document.getElementById('siteView');
+  sv.style.display = 'none';
+  sv.classList.remove('visible');
+  lv.style.display = '';
+  lv.classList.remove('hiding');
+  lv.style.opacity = '';
+  lv.style.transform = '';
+  resizeBg(); drawBg();
+}
+
+/* ── FORM UTILS ── */
+function hideMessages() {
+  ['msgError','msgSuccess','msgInfo'].forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.remove('show');
+    el.textContent = '';
+  });
+}
+function showMsg(type, text) {
+  hideMessages();
+  const el = document.getElementById('msg' + type.charAt(0).toUpperCase() + type.slice(1));
+  el.textContent = text;
+  el.classList.add('show');
+}
+
+function switchTab(tab) {
+  const isLogin = tab === 'login';
+  document.getElementById('tab-login').classList.toggle('active', isLogin);
+  document.getElementById('tab-register').classList.toggle('active', !isLogin);
+  document.getElementById('loginPanel').style.display = isLogin ? 'block' : 'none';
+  document.getElementById('registerPanel').style.display = isLogin ? 'none' : 'block';
+  document.getElementById('formTitle').innerHTML = isLogin ? 'Welcome <em>back</em>' : 'Create <em>account</em>';
+  document.getElementById('formSub').innerHTML = isLogin
+    ? 'Sign in to access the SRSU project. No account? <a href="#" onclick="switchTab(\'register\');return false;">Create one</a>'
+    : 'Already have an account? <a href="#" onclick="switchTab(\'login\');return false;">Sign in</a>';
+  hideMessages();
+}
+
+function togglePw(id, btn) {
+  const inp = document.getElementById(id);
+  const hide = inp.type === 'password';
+  inp.type = hide ? 'text' : 'password';
+  btn.textContent = hide ? 'hide' : 'show';
+}
+
+function showForgot() {
+  showMsg('info', 'ℹ Password reset: contact zhiyang.ju@bit.edu.cn');
+}
+
+/* ── LOGIN ── */
+function handleLogin() {
+  hideMessages();
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass  = document.getElementById('loginPass').value;
+  const btn   = document.getElementById('loginBtn');
+  if (!email || !pass) { showMsg('error', '⚠ Please fill in all fields.'); return; }
+
+  btn.classList.add('loading');
+  setTimeout(() => {
+    btn.classList.remove('loading');
+    const users  = getUsers();
+    const match  = users.find(u => u.email === email && u.pass === pass);
+    const isDemo = email === 'demo@srsu.ai' && pass === 'srsu2024';
+
+    if (match || isDemo) {
+      currentUser = match || { name: 'Demo User', email };
+      saveSession(currentUser);
+      showMsg('success', '✓ Signed in — loading…');
+      setTimeout(() => showSite(true), 900);
+    } else {
+      showMsg('error', '⚠ Invalid credentials. Try demo@srsu.ai / srsu2024');
+    }
+  }, 1000);
+}
+
+/* ── REGISTER ── */
+function handleRegister() {
+  hideMessages();
+  const name  = document.getElementById('regName').value.trim();
+  const email = document.getElementById('regEmail').value.trim();
+  const pass  = document.getElementById('regPass').value;
+  const pass2 = document.getElementById('regPass2').value;
+  const agree = document.getElementById('agreeTerms').checked;
+  const btn   = document.getElementById('registerBtn');
+
+  if (!name || !email || !pass || !pass2) { showMsg('error','⚠ Please fill in all fields.'); return; }
+  if (pass.length < 8)   { showMsg('error','⚠ Password must be at least 8 characters.'); return; }
+  if (pass !== pass2)    { showMsg('error','⚠ Passwords do not match.'); return; }
+  if (!agree)            { showMsg('error','⚠ Please agree to the usage terms.'); return; }
+
+  btn.classList.add('loading');
+  setTimeout(() => {
+    btn.classList.remove('loading');
+    const users = getUsers();
+    if (users.find(u => u.email === email)) { showMsg('error','⚠ An account with this email already exists.'); return; }
+    users.push({ name, email, pass });
+    saveUsers(users);
+    showMsg('success', '✓ Account created! Signing you in…');
+    /* auto sign in after register */
+    currentUser = { name, email };
+    saveSession(currentUser);
+    setTimeout(() => showSite(true), 1000);
+  }, 900);
+}
+
+/* ── ENTER KEY ── */
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const loginVisible = document.getElementById('loginPanel').style.display !== 'none';
+  loginVisible ? handleLogin() : handleRegister();
+});
+
+/* ══════════════════════════════════
+   SITE INIT (called after login)
+══════════════════════════════════ */
+function initSite() {
+  /* Scroll reveal */
+  const obs = new IntersectionObserver(entries => {
+    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); obs.unobserve(e.target); }});
+  }, { threshold: 0.1 });
+  document.querySelectorAll('.reveal').forEach(el => obs.observe(el));
+
+  /* Canvases */
+  drawHeroBEV();
+  drawMethodCanvas();
+  drawResultsChart();
+  window.addEventListener('resize', () => {
+    /* Re-setup canvas sizes on resize; animation loops continue automatically */
+    const hc = document.getElementById('heroCanvas');
+    if (hc) { const W = hc.offsetWidth||720; hc.width=W*devicePixelRatio; hc.height=300*devicePixelRatio; hc.style.height='300px'; hc.getContext('2d').scale(devicePixelRatio,devicePixelRatio); }
+    const mc = document.getElementById('methodCanvas');
+    if (mc) { const W = mc.offsetWidth||400; mc.width=W*devicePixelRatio; mc.height=380*devicePixelRatio; mc.style.height='380px'; mc.getContext('2d').scale(devicePixelRatio,devicePixelRatio); }
+    drawResultsChart();
+  });
+  animateBEV();
+}
+
+/* ── HERO BEV ── */
+function drawHeroBEV() {
+  const canvas = document.getElementById('heroCanvas');
+  if (!canvas) return;
+  const W = canvas.offsetWidth || 720;
+  canvas.width  = W * devicePixelRatio;
+  canvas.height = 300 * devicePixelRatio;
+  canvas.style.height = '300px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  const H = 300, cx = W/2, cy = H/2;
+
+  ctx.fillStyle = '#020810'; ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)'; ctx.lineWidth = 0.5;
+  for (let x=0;x<W;x+=24){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+  for (let y=0;y<H;y+=24){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+  ctx.strokeStyle='rgba(48,213,168,0.06)'; ctx.lineWidth=1;
+  [80,140,200].forEach(r=>{ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.stroke();});
+
+  ctx.strokeStyle='#6fcf97'; ctx.lineWidth=1.8;
+  ctx.beginPath();ctx.moveTo(cx-100,0);ctx.bezierCurveTo(cx-90,H*.3,cx-80,H*.7,cx-100,H);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(cx+100,0);ctx.bezierCurveTo(cx+90,H*.3,cx+80,H*.7,cx+100,H);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(cx-100,H*.5);ctx.bezierCurveTo(cx-130,H*.65,cx-200,H*.75,cx-220,H);ctx.stroke();
+
+  ctx.strokeStyle='#f5b932'; ctx.lineWidth=1.2; ctx.setLineDash([8,7]);
+  ctx.beginPath();ctx.moveTo(cx-40,0);ctx.bezierCurveTo(cx-36,H*.3,cx-32,H*.7,cx-40,H);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(cx+40,0);ctx.bezierCurveTo(cx+36,H*.3,cx+32,H*.7,cx+40,H);ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.strokeStyle='#4fa3f7'; ctx.lineWidth=1; ctx.setLineDash([5,4]);
+  for(let i=0;i<6;i++){ctx.beginPath();ctx.moveTo(cx-98+i*2,cy+60);ctx.lineTo(cx+98-i*2,cy+60);ctx.stroke();}
+  ctx.setLineDash([]);
+
+  ctx.strokeStyle='#2dd4a4'; ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(cx,0);ctx.bezierCurveTo(cx,H*.3,cx,H*.7,cx,H);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(cx,cy+20);ctx.bezierCurveTo(cx-40,H*.75,cx-100,H*.85,cx-140,H);ctx.stroke();
+
+  ctx.strokeStyle='#f26b5a'; ctx.lineWidth=1.5; ctx.setLineDash([6,5]);
+  ctx.beginPath();ctx.moveTo(cx-55,0);ctx.bezierCurveTo(cx-50,H*.3,cx-8,H*.4,cx,H*.5);ctx.stroke();
+  ctx.setLineDash([]);
+  [[cx,cy-10],[cx,cy+20],[cx,H*.35]].forEach(([x,y])=>{
+    ctx.fillStyle='#f26b5a';ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='rgba(242,107,90,0.2)';ctx.beginPath();ctx.arc(x,y,10,0,Math.PI*2);ctx.fill();
+  });
+
+  /* ego car drawn by animateBEV loop — skip static draw */
+}
+
+/* ── DRAW A TOP-DOWN CAR ── */
+function drawCar(ctx, x, y, angle, color, scale) {
+  scale = scale || 1;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  const w = 10 * scale, h = 18 * scale;
+
+  /* shadow glow */
+  ctx.fillStyle = color.replace(')',',0.18)').replace('rgb(','rgba(').replace('#f5b932','rgba(245,185,50,0.18)');
+  ctx.beginPath(); ctx.ellipse(0, 0, w*2.2, h*1.4, 0, 0, Math.PI*2); ctx.fill();
+
+  /* body */
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.roundRect(-w, -h, w*2, h*2, 3*scale); ctx.fill();
+
+  /* windshield front */
+  ctx.fillStyle = 'rgba(5,12,26,0.7)';
+  ctx.beginPath(); ctx.roundRect(-w*0.65, -h*0.72, w*1.3, h*0.38, 2*scale); ctx.fill();
+
+  /* windshield rear */
+  ctx.beginPath(); ctx.roundRect(-w*0.55, h*0.28, w*1.1, h*0.32, 2*scale); ctx.fill();
+
+  /* roof panel */
+  ctx.fillStyle = color === '#f5b932' ? '#e8a820' : 'rgba(255,255,255,0.12)';
+  ctx.beginPath(); ctx.roundRect(-w*0.6, -h*0.3, w*1.2, h*0.62, 2*scale); ctx.fill();
+
+  /* headlights */
+  ctx.fillStyle = '#fff9e6';
+  ctx.beginPath(); ctx.ellipse(-w*0.6, -h*0.88, 2.5*scale, 1.8*scale, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse( w*0.6, -h*0.88, 2.5*scale, 1.8*scale, 0, 0, Math.PI*2); ctx.fill();
+
+  /* taillights */
+  ctx.fillStyle = '#ff4040';
+  ctx.beginPath(); ctx.ellipse(-w*0.6, h*0.88, 2.2*scale, 1.6*scale, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse( w*0.6, h*0.88, 2.2*scale, 1.6*scale, 0, 0, Math.PI*2); ctx.fill();
+
+  /* wheels */
+  ctx.fillStyle = '#1a2535';
+  [[-w*1.05,-h*0.6],[w*1.05,-h*0.6],[-w*1.05,h*0.55],[w*1.05,h*0.55]].forEach(([wx,wy])=>{
+    ctx.beginPath(); ctx.ellipse(wx, wy, 2.8*scale, 4.2*scale, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#2d3e56';
+    ctx.beginPath(); ctx.ellipse(wx, wy, 1.4*scale, 2.1*scale, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#1a2535';
+  });
+
+  ctx.restore();
+}
+
+/* ── PATH SAMPLER: get point & angle along a bezier ── */
+function bezierPoint(t, p0, p1, p2, p3) {
+  const mt = 1-t;
+  return {
+    x: mt*mt*mt*p0.x + 3*mt*mt*t*p1.x + 3*mt*t*t*p2.x + t*t*t*p3.x,
+    y: mt*mt*mt*p0.y + 3*mt*mt*t*p1.y + 3*mt*t*t*p2.y + t*t*t*p3.y
+  };
+}
+function bezierAngle(t, p0, p1, p2, p3) {
+  const mt=1-t;
+  const dx = 3*(mt*mt*(p1.x-p0.x)+2*mt*t*(p2.x-p1.x)+t*t*(p3.x-p2.x));
+  const dy = 3*(mt*mt*(p1.y-p0.y)+2*mt*t*(p2.y-p1.y)+t*t*(p3.y-p2.y));
+  return Math.atan2(dy, dx);
+}
+
+/* ── HERO BEV FULL ANIMATION LOOP ── */
+let bevT = 0;
+/* Traffic cars: each has a path and a phase offset */
+const trafficDefs = [
+  /* car going up the left lane */
+  { lane: 'left',  dir: -1, speed: 0.0028, phase: 0.0,  color: '#4fa3f7', scale: 0.85 },
+  /* car going up right lane */
+  { lane: 'right', dir: -1, speed: 0.0022, phase: 0.3,  color: '#30d5a8', scale: 0.82 },
+  /* car going down left lane */
+  { lane: 'left',  dir:  1, speed: 0.0025, phase: 0.55, color: '#f26b5a', scale: 0.80 },
+  /* car going down right lane */
+  { lane: 'right', dir:  1, speed: 0.0019, phase: 0.75, color: '#a78bfa', scale: 0.78 },
+];
+
+function getCarPos(def, W, H) {
+  const cx = W/2;
+  /* Each lane is an offset bezier matching the road lines */
+  const laneOff = def.lane === 'left' ? -20 : 20; /* offset within lane */
+  const t = (def.phase + bevT * def.speed) % 1;
+  const tt = def.dir === -1 ? (1 - t) : t; /* flip direction */
+
+  const p0 = {x: cx+laneOff, y: 0};
+  const p1 = {x: cx+laneOff*0.9, y: H*0.3};
+  const p2 = {x: cx+laneOff*0.8, y: H*0.7};
+  const p3 = {x: cx+laneOff, y: H};
+  const pos = bezierPoint(tt, p0, p1, p2, p3);
+  const ang = bezierAngle(tt, p0, p1, p2, p3) + (def.dir === -1 ? Math.PI : 0);
+  return { x: pos.x, y: pos.y, angle: ang };
+}
+
+function animateBEV() {
+  bevT += 0.016;
+  const canvas = document.getElementById('heroCanvas');
+  if (!canvas) { requestAnimationFrame(animateBEV); return; }
+  const W = canvas.width / devicePixelRatio;
+  const H = canvas.height / devicePixelRatio;
+  const cx = W/2, cy = H/2;
+  const ctx = canvas.getContext('2d');
+
+  /* ── redraw static scene ── */
+  ctx.fillStyle = '#020810'; ctx.fillRect(0, 0, W, H);
+
+  /* grid */
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)'; ctx.lineWidth = 0.5;
+  for (let x=0;x<W;x+=24){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+  for (let y=0;y<H;y+=24){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+
+  /* range rings */
+  ctx.strokeStyle='rgba(48,213,168,0.06)'; ctx.lineWidth=1;
+  [80,140,200].forEach(r=>{ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.stroke();});
+
+  /* road boundaries (green) */
+  ctx.strokeStyle='#6fcf97'; ctx.lineWidth=1.8;
+  ctx.beginPath();ctx.moveTo(cx-100,0);ctx.bezierCurveTo(cx-90,H*.3,cx-80,H*.7,cx-100,H);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(cx+100,0);ctx.bezierCurveTo(cx+90,H*.3,cx+80,H*.7,cx+100,H);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(cx-100,H*.5);ctx.bezierCurveTo(cx-130,H*.65,cx-200,H*.75,cx-220,H);ctx.stroke();
+
+  /* lane dividers (amber dashed) */
+  ctx.strokeStyle='#f5b932'; ctx.lineWidth=1.2; ctx.setLineDash([8,7]);
+  ctx.beginPath();ctx.moveTo(cx-40,0);ctx.bezierCurveTo(cx-36,H*.3,cx-32,H*.7,cx-40,H);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(cx+40,0);ctx.bezierCurveTo(cx+36,H*.3,cx+32,H*.7,cx+40,H);ctx.stroke();
+  ctx.setLineDash([]);
+
+  /* pedestrian crossing (blue) */
+  ctx.strokeStyle='#4fa3f7'; ctx.lineWidth=1; ctx.setLineDash([5,4]);
+  for(let i=0;i<6;i++){ctx.beginPath();ctx.moveTo(cx-98+i*2,cy+60);ctx.lineTo(cx+98-i*2,cy+60);ctx.stroke();}
+  ctx.setLineDash([]);
+
+  /* lane centerlines (teal) */
+  ctx.strokeStyle='#2dd4a4'; ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(cx,0);ctx.bezierCurveTo(cx,H*.3,cx,H*.7,cx,H);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(cx,cy+20);ctx.bezierCurveTo(cx-40,H*.75,cx-100,H*.85,cx-140,H);ctx.stroke();
+
+  /* topology edges (coral) */
+  ctx.strokeStyle='#f26b5a'; ctx.lineWidth=1.5; ctx.setLineDash([6,5]);
+  ctx.beginPath();ctx.moveTo(cx-55,0);ctx.bezierCurveTo(cx-50,H*.3,cx-8,H*.4,cx,H*.5);ctx.stroke();
+  ctx.setLineDash([]);
+
+  /* topology nodes */
+  [[cx,cy-10],[cx,cy+20],[cx,H*.35]].forEach(([x,y])=>{
+    ctx.fillStyle='#f26b5a';ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='rgba(242,107,90,0.2)';ctx.beginPath();ctx.arc(x,y,10,0,Math.PI*2);ctx.fill();
+  });
+
+  /* ── traffic cars ── */
+  trafficDefs.forEach(def => {
+    const p = getCarPos(def, W, H);
+    drawCar(ctx, p.x, p.y, p.angle, def.color, def.scale);
+  });
+
+  /* ── ego car (always at center, pointing up) ── */
+  ctx.fillStyle='rgba(245,185,50,0.12)';
+  ctx.beginPath();ctx.arc(cx,cy,55,0,Math.PI*2);ctx.fill();
+  drawCar(ctx, cx, cy, -Math.PI/2, '#f5b932', 1.15);
+
+  /* scan line sweep */
+  ctx.fillStyle='rgba(48,213,168,0.012)';
+  const sy = ((bevT*2.5)%(H+20))-10;
+  ctx.fillRect(0,sy,W,2);
+
+  requestAnimationFrame(animateBEV);
+}
+
+/* ── METHOD CANVAS ANIMATION LOOP ── */
+let methodT = 0;
+function animateMethod() {
+  methodT += 0.016;
+  const canvas = document.getElementById('methodCanvas');
+  if (!canvas) { requestAnimationFrame(animateMethod); return; }
+  const W = canvas.width / devicePixelRatio;
+  const H = canvas.height / devicePixelRatio;
+  const cx = W/2, cy = H/2;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle='#020810'; ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle='rgba(255,255,255,0.03)'; ctx.lineWidth=0.5;
+  for(let x=0;x<W;x+=20){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+  for(let y=0;y<H;y+=20){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+
+  ctx.strokeStyle='rgba(48,213,168,0.08)'; ctx.lineWidth=1; ctx.setLineDash([4,4]);
+  ctx.beginPath();ctx.arc(cx,cy,150,0,Math.PI*2);ctx.stroke(); ctx.setLineDash([]);
+
+  ctx.strokeStyle='#6fcf97'; ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(cx-120,10);ctx.bezierCurveTo(cx-110,cy,cx-100,cy+100,cx-120,H-10);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(cx+120,10);ctx.bezierCurveTo(cx+110,cy,cx+100,cy+100,cx+120,H-10);ctx.stroke();
+
+  ctx.strokeStyle='rgba(79,163,247,0.6)'; ctx.lineWidth=1; ctx.setLineDash([5,4]);
+  for(let i=0;i<5;i++){ctx.beginPath();ctx.moveTo(cx-118,cy+80+i*5);ctx.lineTo(cx+118,cy+80+i*5);ctx.stroke();}
+  ctx.setLineDash([]);
+
+  ctx.strokeStyle='rgba(245,185,50,0.7)'; ctx.lineWidth=1.2; ctx.setLineDash([8,6]);
+  ctx.beginPath();ctx.moveTo(cx-45,10);ctx.bezierCurveTo(cx-42,cy,cx-38,cy+100,cx-45,H-10);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(cx+45,10);ctx.bezierCurveTo(cx+42,cy,cx+38,cy+100,cx+45,H-10);ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.strokeStyle='#2dd4a4'; ctx.lineWidth=2.5;
+  ctx.beginPath();ctx.moveTo(cx,10);ctx.lineTo(cx,H-10);ctx.stroke();
+  ctx.strokeStyle='rgba(242,107,90,0.8)'; ctx.lineWidth=1.5; ctx.setLineDash([6,5]);
+  ctx.beginPath();ctx.moveTo(cx-60,10);ctx.bezierCurveTo(cx-55,cy*.4,cx-5,cy*.6,cx,cy*.75);ctx.stroke();
+  ctx.setLineDash([]);
+
+  [[cx,cy*.35],[cx,cy*.75]].forEach(([x,y])=>{
+    ctx.fillStyle='rgba(242,107,90,0.2)';ctx.beginPath();ctx.arc(x,y,12,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#f26b5a';ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill();
+  });
+
+  ctx.fillStyle='rgba(48,213,168,0.03)';
+  for(let y=0;y<H;y+=4){ctx.fillRect(0,y,W,2);}
+
+  /* traffic cars */
+  const mDefs = [
+    { laneX: cx-22, dir: -1, speed: 0.003,  phase: 0.1,  color: '#4fa3f7', scale: 0.8 },
+    { laneX: cx+22, dir:  1, speed: 0.0025, phase: 0.6,  color: '#30d5a8', scale: 0.78 },
+    { laneX: cx-22, dir:  1, speed: 0.002,  phase: 0.8,  color: '#f26b5a', scale: 0.75 },
+    { laneX: cx+22, dir: -1, speed: 0.0018, phase: 0.35, color: '#a78bfa', scale: 0.72 },
+  ];
+  mDefs.forEach(def => {
+    const t = ((def.phase + methodT * def.speed) % 1);
+    const tt = def.dir === -1 ? (1-t) : t;
+    const p0={x:def.laneX,y:10},p1={x:def.laneX,y:H*0.35},p2={x:def.laneX,y:H*0.65},p3={x:def.laneX,y:H-10};
+    const pos = bezierPoint(tt,p0,p1,p2,p3);
+    const ang = def.dir === -1 ? -Math.PI/2 : Math.PI/2;
+    drawCar(ctx, pos.x, pos.y, ang, def.color, def.scale);
+  });
+
+  ctx.fillStyle='rgba(245,185,50,0.12)'; ctx.beginPath();ctx.arc(cx,cy,60,0,Math.PI*2);ctx.fill();
+  drawCar(ctx, cx, cy, -Math.PI/2, '#f5b932', 1.1);
+
+  requestAnimationFrame(animateMethod);
+}
+function drawMethodCanvas() {
+  const canvas = document.getElementById('methodCanvas');
+  if (!canvas) return;
+  const W = canvas.offsetWidth || 400;
+  canvas.width=W*devicePixelRatio; canvas.height=380*devicePixelRatio; canvas.style.height='380px';
+  canvas.getContext('2d').scale(devicePixelRatio, devicePixelRatio);
+  animateMethod();
+}
+
+/* ── ABLATION CHART ── */
+function drawResultsChart() {
+  const canvas = document.getElementById('resultsChart');
+  if (!canvas) return;
+  const W = canvas.offsetWidth || 400;
+  canvas.width=W*devicePixelRatio; canvas.height=220*devicePixelRatio; canvas.style.height='220px';
+  const ctx=canvas.getContext('2d'); ctx.scale(devicePixelRatio,devicePixelRatio); const H=220;
+  ctx.fillStyle='#020810'; ctx.fillRect(0,0,W,H);
+  const data=[{label:'Lite',val:48.7,color:'#2a3d5a'},{label:'+AT',val:50.6,color:'#f5b932'},{label:'+AT+D',val:52.4,color:'#f5b932'},{label:'+I',val:50.9,color:'#4fa3f7'},{label:'+AT+I',val:52.6,color:'#2dd4a4'},{label:'Full',val:54.1,color:'#f5b932'}];
+  const pad={t:20,r:16,b:36,l:44},minV=47,maxV=55;
+  const cW=W-pad.l-pad.r,cH=H-pad.t-pad.b,bW=(cW/data.length)*0.55,bStep=cW/data.length;
+  [48,50,52,54].forEach(v=>{
+    const y=pad.t+cH-((v-minV)/(maxV-minV))*cH;
+    ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=0.5;
+    ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();
+    ctx.fillStyle='#2a3d5a'; ctx.font=`9px 'DM Mono'`; ctx.textAlign='right';
+    ctx.fillText(v+'%',pad.l-5,y+3);
+  });
+  data.forEach((d,i)=>{
+    const x=pad.l+i*bStep+(bStep-bW)/2,bH=((d.val-minV)/(maxV-minV))*cH,y=pad.t+cH-bH;
+    ctx.fillStyle=d.color+'22'; ctx.fillRect(x,y,bW,bH);
+    ctx.fillStyle=d.color; ctx.fillRect(x,y,bW,2);
+    const top=d.val===54.1;
+    ctx.fillStyle=top?'#f5b932':'#7a92b4'; ctx.font=`${top?'11':'9'}px 'DM Mono'`; ctx.textAlign='center';
+    ctx.fillText(d.val.toFixed(1),x+bW/2,y-5);
+    ctx.fillStyle=top?'#f5b932':'#2a3d5a'; ctx.font=`9px 'DM Mono'`;
+    ctx.fillText(d.label,x+bW/2,H-10);
+  });
+  const bY=pad.t+cH-((48.7-minV)/(maxV-minV))*cH;
+  ctx.strokeStyle='rgba(122,146,180,0.25)'; ctx.lineWidth=1; ctx.setLineDash([4,4]);
+  ctx.beginPath();ctx.moveTo(pad.l,bY);ctx.lineTo(W-pad.r,bY);ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle='rgba(122,146,180,0.4)'; ctx.font=`8px 'DM Mono'`; ctx.textAlign='left';
+  ctx.fillText('baseline',pad.l+4,bY-4);
+}
+
+/* ── LOGIN BG CANVAS ── */
+const bgC = document.getElementById('bgCanvas');
+const bgCtx = bgC.getContext('2d');
+let animT = 0, bgRAF = null;
+
+function resizeBg() { bgC.width = bgC.offsetWidth; bgC.height = bgC.offsetHeight; }
+
+function drawBg() {
+  if (!bgC.width) resizeBg();
+  const W=bgC.width, H=bgC.height, cx=W/2, cy=H*0.55;
+  bgCtx.clearRect(0,0,W,H);
+  [120,200,290,390].forEach((r,i)=>{
+    bgCtx.strokeStyle=`rgba(48,213,168,${0.04+0.02*Math.sin(animT*.5+i)})`;
+    bgCtx.lineWidth=1; bgCtx.beginPath(); bgCtx.arc(cx,cy,r,0,Math.PI*2); bgCtx.stroke();
+  });
+  const sw=(animT*.4)%(Math.PI*2);
+  bgCtx.save(); bgCtx.translate(cx,cy); bgCtx.rotate(sw);
+  const sg=bgCtx.createLinearGradient(0,0,350,0);
+  sg.addColorStop(0,'rgba(48,213,168,0.12)'); sg.addColorStop(.4,'rgba(48,213,168,0.04)'); sg.addColorStop(1,'rgba(48,213,168,0)');
+  bgCtx.beginPath(); bgCtx.moveTo(0,0); bgCtx.arc(0,0,390,-0.18,0.18); bgCtx.closePath();
+  bgCtx.fillStyle=sg; bgCtx.fill(); bgCtx.restore();
+  bgCtx.strokeStyle='rgba(111,207,151,0.25)'; bgCtx.lineWidth=1.5;
+  bgCtx.beginPath();bgCtx.moveTo(cx-110,0);bgCtx.bezierCurveTo(cx-95,cy,cx-85,cy+120,cx-110,H);bgCtx.stroke();
+  bgCtx.beginPath();bgCtx.moveTo(cx+110,0);bgCtx.bezierCurveTo(cx+95,cy,cx+85,cy+120,cx+110,H);bgCtx.stroke();
+  bgCtx.strokeStyle='rgba(245,185,50,0.2)'; bgCtx.lineWidth=1; bgCtx.setLineDash([9,7]);
+  bgCtx.beginPath();bgCtx.moveTo(cx-38,0);bgCtx.bezierCurveTo(cx-34,cy,cx-30,cy+120,cx-38,H);bgCtx.stroke();
+  bgCtx.beginPath();bgCtx.moveTo(cx+38,0);bgCtx.bezierCurveTo(cx+34,cy,cx+30,cy+120,cx+38,H);bgCtx.stroke();
+  bgCtx.setLineDash([]);
+  bgCtx.strokeStyle='rgba(48,213,168,0.3)'; bgCtx.lineWidth=2;
+  bgCtx.beginPath();bgCtx.moveTo(cx,0);bgCtx.lineTo(cx,H);bgCtx.stroke();
+  /* moving car along center lane */
+  const bgT = (animT * 0.0022) % 1;
+  const bgP0={x:cx,y:0},bgP1={x:cx,y:H*0.35},bgP2={x:cx,y:H*0.65},bgP3={x:cx,y:H};
+  const bgPos = bezierPoint(bgT, bgP0, bgP1, bgP2, bgP3);
+  drawCar(bgCtx, bgPos.x, bgPos.y, Math.PI/2, '#f5b932', 1.0);
+
+  /* topology node */
+  const ty=cy-30+Math.sin(animT*.8)*5;
+  bgCtx.fillStyle='rgba(242,107,90,0.15)';bgCtx.beginPath();bgCtx.arc(cx,ty,14,0,Math.PI*2);bgCtx.fill();
+  bgCtx.fillStyle='rgba(242,107,90,0.7)';bgCtx.beginPath();bgCtx.arc(cx,ty,4,0,Math.PI*2);bgCtx.fill();
+  animT+=0.016;
+  bgRAF=requestAnimationFrame(drawBg);
+}
+
+window.addEventListener('resize', resizeBg);
+</script>
+</body>
+</html>
